@@ -12,10 +12,10 @@ juce_add_plugin(PitchVelocityRemapper
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Pitch Velocity Remapper"
     COMPANY_NAME "YourCompany"
-    IS_SYNTH FALSE
+    IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
-    IS_MIDI_EFFECT TRUE
+    IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
     PLUGIN_MANUFACTURER "YourCompany"
@@ -27,8 +27,8 @@ juce_generate_juce_header(PitchVelocityRemapper)
 
 target_sources(PitchVelocityRemapper
     PRIVATE
-        Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp)
+        PluginProcessor.cpp
+        PluginEditor.cpp)
 
 # Link required JUCE modules
 target_link_libraries(PitchVelocityRemapper
