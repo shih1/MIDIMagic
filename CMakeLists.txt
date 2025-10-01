@@ -29,7 +29,7 @@ target_sources(PitchVelocityRemapper
         PluginProcessor.cpp
         PluginEditor.cpp)
 
-# Link required JUCE modules
+# Link required JUCE modules 
 target_link_libraries(PitchVelocityRemapper
     PRIVATE
         juce::juce_audio_utils

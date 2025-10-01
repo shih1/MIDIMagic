@@ -9,14 +9,11 @@ const juce::String PitchVelocityProcessor::CURVE_ID = "curve";
 const juce::String PitchVelocityProcessor::BYPASS_ID = "bypass";
 
 PitchVelocityProcessor::PitchVelocityProcessor()
-    : AudioProcessor(BusesProperties()
-                         // For Ableton compatibility, we need audio buses even for MIDI effects
-                         .withInput("Input", juce::AudioChannelSet::stereo(), true)
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor(BusesProperties()), // No audio buses
       parameters(*this, nullptr, "Parameters", createParameterLayout())
 {
+    // Constructor body (if you have anything else)
 }
-
 PitchVelocityProcessor::~PitchVelocityProcessor()
 {
 }
@@ -127,119 +124,94 @@ bool PitchVelocityProcessor::isBusesLayoutSupported(const BusesLayout &layouts) 
 
 void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages)
 {
-    // Clear audio buffer since we're not processing audio
-    buffer.clear();
+    // buffer.clear();
 
-    // Try different ways to get parameter values
+    // Create log file on desktop
+    static juce::File logFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                                    .getChildFile("PVP_Debug.txt");
+
+    auto LOG = [&](const juce::String &msg)
+    {
+        logFile.appendText(juce::Time::getCurrentTime().toString(true, true, true, true) + " - " + msg + "\n");
+    };
+
+    // Get parameter values
     bool bypass = false;
     float minVel = 10.0f;
     float maxVel = 127.0f;
     float curveValue = 1.0f;
 
-    // Method 1: Direct parameter access
     if (auto *bypassParam = dynamic_cast<juce::AudioParameterBool *>(parameters.getParameter(BYPASS_ID)))
-    {
         bypass = bypassParam->get();
-        DBG("Bypass (direct): " + (bypass ? juce::String("true") : juce::String("false")));
-    }
 
     if (auto *minVelParam = dynamic_cast<juce::AudioParameterFloat *>(parameters.getParameter(MIN_VELOCITY_ID)))
-    {
         minVel = minVelParam->get();
-        DBG("MinVel (direct): " + juce::String(minVel));
-    }
 
     if (auto *maxVelParam = dynamic_cast<juce::AudioParameterFloat *>(parameters.getParameter(MAX_VELOCITY_ID)))
-    {
         maxVel = maxVelParam->get();
-        DBG("MaxVel (direct): " + juce::String(maxVel));
-    }
 
     if (auto *curveParam = dynamic_cast<juce::AudioParameterFloat *>(parameters.getParameter(CURVE_ID)))
-    {
         curveValue = curveParam->get();
-        DBG("Curve (direct): " + juce::String(curveValue));
-    }
 
-    if (bypass)
-    {
-        DBG("Plugin bypassed - passing MIDI through");
+    if (bypass || midiMessages.isEmpty())
         return;
-    }
 
-    DBG("Using values - MinVel: " + juce::String(minVel) +
-        " MaxVel: " + juce::String(maxVel) +
-        " Curve: " + juce::String(curveValue));
+    LOG("=== BEFORE PROCESSING ===");
+    for (const auto metadata : midiMessages)
+    {
+        auto msg = metadata.getMessage();
+        if (msg.isNoteOn())
+        {
+            LOG("BEFORE: Note=" + juce::String(msg.getNoteNumber()) + " Vel=" + juce::String(msg.getVelocity()));
+        }
+    }
 
     juce::MidiBuffer processedMidi;
 
     for (const auto metadata : midiMessages)
     {
         auto message = metadata.getMessage();
-        const auto time = metadata.samplePosition;
 
         if (message.isNoteOn())
         {
             int noteNumber = message.getNoteNumber();
-            int originalVelocity = message.getVelocity();
+            int originalVel = message.getVelocity();
 
-            // Log to file for debugging
-            juce::File logFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("PVP_Debug.txt");
-            juce::String logLine = "Processing Note: " + juce::String(noteNumber) +
-                                   " OriginalVel: " + juce::String(originalVelocity) +
-                                   " MinVel: " + juce::String(minVel) +
-                                   " MaxVel: " + juce::String(maxVel) +
-                                   " Curve: " + juce::String(curveValue);
-            logFile.appendText(logLine + "\n");
-
-            DBG("Processing Note: " + juce::String(noteNumber) + " OriginalVel: " + juce::String(originalVelocity));
-
-            // Calculate normalized position (0.0 to 1.0) based on note
             float normalized = noteNumber / 127.0f;
-
-            // Apply curve
             normalized = std::pow(normalized, curveValue);
 
-            // Scale to velocity range
             int newVelocity = static_cast<int>(minVel + (maxVel - minVel) * normalized);
+            newVelocity = juce::jlimit(1, 127, newVelocity);
 
-            // Clamp to valid MIDI range
-            // newVelocity = juce::jlimit(1, 127, newVelocity);
-
-            newVelocity = 5;
-
-            juce::String resultLine = "Result - Note: " + juce::String(noteNumber) +
-                                      " NewVelocity: " + juce::String(newVelocity) +
-                                      " Normalized: " + juce::String(normalized);
-            logFile.appendText(resultLine + "\n");
-
-            DBG("Result - Note: " + juce::String(noteNumber) +
-                " NewVelocity: " + juce::String(newVelocity) +
-                " Normalized: " + juce::String(normalized));
+            LOG("TRANSFORM: Note=" + juce::String(noteNumber) + " " + juce::String(originalVel) + " -> " + juce::String(newVelocity));
 
             auto newMessage = juce::MidiMessage::noteOn(
                 message.getChannel(),
                 noteNumber,
-                (uint8)newVelocity);
+                static_cast<juce::uint8>(newVelocity));
 
-            // Debug: Verify the new message was created correctly
-            juce::String verifyLine = "Created MIDI: Channel=" + juce::String(newMessage.getChannel()) +
-                                      " Note=" + juce::String(newMessage.getNoteNumber()) +
-                                      " Velocity=" + juce::String(newMessage.getVelocity());
-            logFile.appendText(verifyLine + "\n");
-            DBG(verifyLine);
-
-            processedMidi.addEvent(newMessage, time);
+            processedMidi.addEvent(newMessage, metadata.samplePosition);
         }
         else
         {
-            processedMidi.addEvent(message, time);
+            processedMidi.addEvent(message, metadata.samplePosition);
         }
     }
 
+    LOG("=== SWAPPING ===");
     midiMessages.swapWith(processedMidi);
-}
 
+    LOG("=== AFTER SWAP (checking midiMessages) ===");
+    for (const auto metadata : midiMessages)
+    {
+        auto msg = metadata.getMessage();
+        if (msg.isNoteOn())
+        {
+            LOG("AFTER SWAP: Note=" + juce::String(msg.getNoteNumber()) + " Vel=" + juce::String(msg.getVelocity()));
+        }
+    }
+    LOG("==============================\n");
+}
 bool PitchVelocityProcessor::hasEditor() const
 {
     return true;
