@@ -220,7 +220,7 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
             auto newMessage = juce::MidiMessage::noteOn(
                 message.getChannel(),
                 noteNumber,
-                (float)newVelocity / 127.0f);
+                (uint8)newVelocity);
 
             // Debug: Verify the new message was created correctly
             juce::String verifyLine = "Created MIDI: Channel=" + juce::String(newMessage.getChannel()) +
@@ -231,11 +231,7 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
 
             processedMidi.addEvent(newMessage, time);
         }
-        else if (message.isNoteOff())
-        {
-            processedMidi.addEvent(message, time);
-        }
-        else if (message.isController() || message.isPitchWheel() || message.isChannelPressure() || message.isAftertouch())
+        else
         {
             processedMidi.addEvent(message, time);
         }

@@ -7,10 +7,10 @@ add_subdirectory(ext/juce)
 
 # Create our plugin
 juce_add_plugin(PitchVelocityRemapper
-    PLUGIN_MANUFACTURER_CODE Juce
+    PLUGIN_MANUFACTURER_CODE Shih
     PLUGIN_CODE Pvr1
     FORMATS AU VST3 Standalone
-    PRODUCT_NAME "Pitch Velocity Remapper"
+    PRODUCT_NAME "BetterVelocity"
     COMPANY_NAME "YourCompany"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
@@ -19,8 +19,7 @@ juce_add_plugin(PitchVelocityRemapper
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
     PLUGIN_MANUFACTURER "YourCompany"
-    PLUGIN_CODE Pvr1
-    VST3_CATEGORIES "Fx" "Tools" "MIDI")
+)
 
 # Add source files
 juce_generate_juce_header(PitchVelocityRemapper)
