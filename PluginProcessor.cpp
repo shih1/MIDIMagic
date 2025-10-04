@@ -9,11 +9,14 @@ const juce::String PitchVelocityProcessor::CURVE_ID = "curve";
 const juce::String PitchVelocityProcessor::BYPASS_ID = "bypass";
 
 PitchVelocityProcessor::PitchVelocityProcessor()
-    : AudioProcessor(BusesProperties()), // No audio buses
+    : AudioProcessor(BusesProperties()
+                         .withInput("Input", juce::AudioChannelSet::stereo(), true)
+                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "Parameters", createParameterLayout())
 {
-    // Constructor body (if you have anything else)
+    // Constructor body
 }
+
 PitchVelocityProcessor::~PitchVelocityProcessor()
 {
 }
@@ -121,20 +124,8 @@ bool PitchVelocityProcessor::isBusesLayoutSupported(const BusesLayout &layouts) 
     return true;
 }
 #endif
-
 void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages)
 {
-    // buffer.clear();
-
-    // Create log file on desktop
-    static juce::File logFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
-                                    .getChildFile("PVP_Debug.txt");
-
-    auto LOG = [&](const juce::String &msg)
-    {
-        logFile.appendText(juce::Time::getCurrentTime().toString(true, true, true, true) + " - " + msg + "\n");
-    };
-
     // Get parameter values
     bool bypass = false;
     float minVel = 10.0f;
@@ -156,16 +147,6 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
     if (bypass || midiMessages.isEmpty())
         return;
 
-    LOG("=== BEFORE PROCESSING ===");
-    for (const auto metadata : midiMessages)
-    {
-        auto msg = metadata.getMessage();
-        if (msg.isNoteOn())
-        {
-            LOG("BEFORE: Note=" + juce::String(msg.getNoteNumber()) + " Vel=" + juce::String(msg.getVelocity()));
-        }
-    }
-
     juce::MidiBuffer processedMidi;
 
     for (const auto metadata : midiMessages)
@@ -183,8 +164,6 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
             int newVelocity = static_cast<int>(minVel + (maxVel - minVel) * normalized);
             newVelocity = juce::jlimit(1, 127, newVelocity);
 
-            LOG("TRANSFORM: Note=" + juce::String(noteNumber) + " " + juce::String(originalVel) + " -> " + juce::String(newVelocity));
-
             auto newMessage = juce::MidiMessage::noteOn(
                 message.getChannel(),
                 noteNumber,
@@ -198,19 +177,7 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
         }
     }
 
-    LOG("=== SWAPPING ===");
     midiMessages.swapWith(processedMidi);
-
-    LOG("=== AFTER SWAP (checking midiMessages) ===");
-    for (const auto metadata : midiMessages)
-    {
-        auto msg = metadata.getMessage();
-        if (msg.isNoteOn())
-        {
-            LOG("AFTER SWAP: Note=" + juce::String(msg.getNoteNumber()) + " Vel=" + juce::String(msg.getVelocity()));
-        }
-    }
-    LOG("==============================\n");
 }
 
 bool PitchVelocityProcessor::hasEditor() const

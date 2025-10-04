@@ -4,11 +4,12 @@ project(PitchVelocityRemapper VERSION 1.0.0)
 
 # Add JUCE as a subdirectory (assuming you have JUCE in a folder called JUCE)
 add_subdirectory(ext/juce)
+add_compile_definitions(JUCE_VST3_CAN_REPLACE_VST2=0)
 
 # Create our plugin
 juce_add_plugin(PitchVelocityRemapper
     PLUGIN_MANUFACTURER_CODE Shih
-    PLUGIN_CODE Pvr1
+    PLUGIN_CODE bttr
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "BetterVelocity"
     COMPANY_NAME "YourCompany"
