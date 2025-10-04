@@ -212,6 +212,7 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
     }
     LOG("==============================\n");
 }
+
 bool PitchVelocityProcessor::hasEditor() const
 {
     return true;
