@@ -46,7 +46,15 @@ public:
     static const juce::String CURVE_ID;
     static const juce::String BYPASS_ID;
 
+    // helper to editor
+    void processMidiForDisplay(juce::MidiKeyboardState &keyboardState, int numSamples);
+
+    juce::MidiKeyboardState keyboardState; // Add this public member
+    std::array<std::atomic<int>, 128> lastNoteVelocities;
+
 private:
+    juce::MidiBuffer currentMidiMessages;
+    juce::CriticalSection midiMonitorLock;
     juce::AudioProcessorValueTreeState parameters;
 
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

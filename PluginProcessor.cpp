@@ -14,7 +14,8 @@ PitchVelocityProcessor::PitchVelocityProcessor()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "Parameters", createParameterLayout())
 {
-    // Constructor body
+    for (auto &vel : lastNoteVelocities)
+        vel.store(0);
 }
 
 PitchVelocityProcessor::~PitchVelocityProcessor()
@@ -144,6 +145,9 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
     if (auto *curveParam = dynamic_cast<juce::AudioParameterFloat *>(parameters.getParameter(CURVE_ID)))
         curveValue = curveParam->get();
 
+    // Update keyboard state with incoming MIDI
+    keyboardState.processNextMidiBuffer(midiMessages, 0, buffer.getNumSamples(), true);
+
     if (bypass || midiMessages.isEmpty())
         return;
 
@@ -156,13 +160,15 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
         if (message.isNoteOn())
         {
             int noteNumber = message.getNoteNumber();
-            int originalVel = message.getVelocity();
 
             float normalized = noteNumber / 127.0f;
             normalized = std::pow(normalized, curveValue);
 
             int newVelocity = static_cast<int>(minVel + (maxVel - minVel) * normalized);
             newVelocity = juce::jlimit(1, 127, newVelocity);
+
+            // STORE THE VELOCITY FOR THE EDITOR
+            lastNoteVelocities[noteNumber].store(newVelocity);
 
             auto newMessage = juce::MidiMessage::noteOn(
                 message.getChannel(),
@@ -171,6 +177,12 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
 
             processedMidi.addEvent(newMessage, metadata.samplePosition);
         }
+        else if (message.isNoteOff())
+        {
+            // Clear velocity on note off
+            lastNoteVelocities[message.getNoteNumber()].store(0);
+            processedMidi.addEvent(message, metadata.samplePosition);
+        }
         else
         {
             processedMidi.addEvent(message, metadata.samplePosition);
@@ -178,6 +190,19 @@ void PitchVelocityProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce
     }
 
     midiMessages.swapWith(processedMidi);
+
+    // Store MIDI for the editor to read
+    {
+        const juce::ScopedLock sl(midiMonitorLock);
+        currentMidiMessages.clear();
+        currentMidiMessages.addEvents(midiMessages, 0, buffer.getNumSamples(), 0);
+    }
+}
+
+void PitchVelocityProcessor::processMidiForDisplay(juce::MidiKeyboardState &keyboardState, int numSamples)
+{
+    const juce::ScopedLock sl(midiMonitorLock);
+    keyboardState.processNextMidiBuffer(currentMidiMessages, 0, numSamples, true);
 }
 
 bool PitchVelocityProcessor::hasEditor() const

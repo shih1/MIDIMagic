@@ -1,4 +1,3 @@
-
 // PluginEditor.cpp
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -57,53 +56,105 @@ PitchVelocityEditor::PitchVelocityEditor(PitchVelocityProcessor &p)
     bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.getParameters(), PitchVelocityProcessor::BYPASS_ID, bypassButton);
 
+    // Initialize active notes
+    for (auto &note : activeNotes)
+    {
+        note.velocity = 0;
+        note.fadeAmount = 0.0f;
+    }
+
     // Start timer for graphics updates
     startTimerHz(30);
 
-    setSize(400, 250);
+    setSize(800, 300);
 }
 
 PitchVelocityEditor::~PitchVelocityEditor()
 {
     stopTimer();
 }
-
 void PitchVelocityEditor::timerCallback()
 {
-    // Repaint the curve visualization
-    repaint(20, 170, 360, 60);
+    // Update from processor's MIDI
+    audioProcessor.processMidiForDisplay(audioProcessor.keyboardState, 128);
+
+    // Update active notes with velocities
+    bool needsRepaint = false;
+
+    for (int i = 0; i < 128; i++)
+    {
+        if (audioProcessor.keyboardState.isNoteOn(1, i))
+        {
+            int vel = audioProcessor.lastNoteVelocities[i].load();
+            if (vel > 0)
+            {
+                activeNotes[i].velocity = vel; // THIS LINE WAS MISSING
+                activeNotes[i].fadeAmount = 1.0f;
+                needsRepaint = true;
+            }
+        }
+    }
+
+    // Fade out active notes
+    for (auto &note : activeNotes)
+    {
+        if (note.fadeAmount > 0.0f)
+        {
+            note.fadeAmount -= 0.05f;
+            if (note.fadeAmount < 0.0f)
+                note.fadeAmount = 0.0f;
+            needsRepaint = true;
+        }
+    }
+
+    if (needsRepaint)
+        repaint();
 }
 
 void PitchVelocityEditor::paint(juce::Graphics &g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    g.fillAll(juce::Colour(0xff1a1a1a)); // Dark background
 
-    // Draw visual guide
-    g.setColour(juce::Colours::grey);
-    juce::Rectangle<float> graphArea(20, 170, 360, 60);
-    g.drawRect(graphArea);
+    // Define visualization area
+    juce::Rectangle<float> vizArea(20, 170, getWidth() - 40, 110);
+
+    // Draw curve overlay at top
+    juce::Rectangle<float> curveArea(vizArea.getX(), vizArea.getY(), vizArea.getWidth(), 25);
+    drawCurveOverlay(g, curveArea);
+
+    // Draw velocity bars
+    juce::Rectangle<float> barsArea(vizArea.getX(), curveArea.getBottom() + 5, vizArea.getWidth(), 35);
+    drawVelocityBars(g, barsArea);
+
+    // Draw keyboard at bottom
+    juce::Rectangle<float> keyboardArea(vizArea.getX(), barsArea.getBottom() + 5, vizArea.getWidth(), 40);
+    drawKeyboard(g, keyboardArea);
+}
+
+void PitchVelocityEditor::drawCurveOverlay(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    // Background
+    g.setColour(juce::Colour(0xff2a2a2a));
+    g.fillRoundedRectangle(area, 4.0f);
 
     // Draw velocity curve
-    g.setColour(juce::Colours::cyan);
-    juce::Path path;
-
     auto minVelParam = audioProcessor.getParameters().getRawParameterValue(PitchVelocityProcessor::MIN_VELOCITY_ID);
     auto maxVelParam = audioProcessor.getParameters().getRawParameterValue(PitchVelocityProcessor::MAX_VELOCITY_ID);
     auto curveParam = audioProcessor.getParameters().getRawParameterValue(PitchVelocityProcessor::CURVE_ID);
 
-    if (minVelParam != nullptr && maxVelParam != nullptr && curveParam != nullptr)
+    if (minVelParam && maxVelParam && curveParam)
     {
         float minVel = *minVelParam;
         float maxVel = *maxVelParam;
         float curveVal = *curveParam;
 
+        juce::Path path;
         for (int i = 0; i <= 127; i++)
         {
-            float x = graphArea.getX() + (i / 127.0f) * graphArea.getWidth();
-            float normalized = i / 127.0f;
-            normalized = std::pow(normalized, curveVal);
+            float x = area.getX() + (i / 127.0f) * area.getWidth();
+            float normalized = std::pow(i / 127.0f, curveVal);
             float velocity = minVel + (maxVel - minVel) * normalized;
-            float y = graphArea.getBottom() - (velocity / 127.0f) * graphArea.getHeight();
+            float y = area.getBottom() - (velocity / 127.0f) * area.getHeight();
 
             if (i == 0)
                 path.startNewSubPath(x, y);
@@ -111,14 +162,163 @@ void PitchVelocityEditor::paint(juce::Graphics &g)
                 path.lineTo(x, y);
         }
 
+        g.setColour(juce::Colour(0xff00ffff).withAlpha(0.6f));
         g.strokePath(path, juce::PathStrokeType(2.0f));
     }
+}
 
-    // Labels
-    g.setColour(juce::Colours::white);
-    g.setFont(10.0f);
-    g.drawText("Low Notes", graphArea.getX(), graphArea.getBottom() + 2, 50, 15, juce::Justification::left);
-    g.drawText("High Notes", graphArea.getRight() - 50, graphArea.getBottom() + 2, 50, 15, juce::Justification::right);
+void PitchVelocityEditor::drawVelocityBars(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    float whiteKeyWidth = area.getWidth() / 75.0f; // 75 white keys in 128 notes
+
+    for (int i = 0; i < 128; i++)
+    {
+        if (activeNotes[i].fadeAmount > 0.0f)
+        {
+            float x = getKeyX(i, area.getWidth());
+            float normalizedVel = activeNotes[i].velocity / 127.0f;
+            float barHeight = normalizedVel * area.getHeight();
+
+            juce::Colour barColour = getVelocityColour(normalizedVel);
+            barColour = barColour.withAlpha(activeNotes[i].fadeAmount);
+
+            g.setColour(barColour);
+            float barWidth = isBlackKey(i) ? whiteKeyWidth * 0.6f : whiteKeyWidth * 0.8f;
+            g.fillRect(area.getX() + x - barWidth / 2,
+                       area.getBottom() - barHeight,
+                       barWidth,
+                       barHeight);
+        }
+    }
+}
+
+void PitchVelocityEditor::drawKeyboard(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    float whiteKeyWidth = area.getWidth() / 75.0f;
+    float blackKeyWidth = whiteKeyWidth * 0.6f;
+    float blackKeyHeight = area.getHeight() * 0.6f;
+
+    // Draw white keys first
+    int whiteKeyIndex = 0;
+    for (int i = 0; i < 128; i++)
+    {
+        if (!isBlackKey(i))
+        {
+            float x = area.getX() + whiteKeyIndex * whiteKeyWidth;
+
+            // Determine if key is active
+            bool isActive = activeNotes[i].fadeAmount > 0.0f;
+            juce::Colour keyColour;
+
+            if (isActive)
+            {
+                float normalizedVel = activeNotes[i].velocity / 127.0f;
+                keyColour = getVelocityColour(normalizedVel).withAlpha(activeNotes[i].fadeAmount);
+            }
+            else
+            {
+                keyColour = juce::Colours::white;
+            }
+
+            g.setColour(keyColour);
+            g.fillRect(x, area.getY(), whiteKeyWidth - 1, area.getHeight());
+
+            g.setColour(juce::Colour(0xff1a1a1a));
+            g.drawRect(x, area.getY(), whiteKeyWidth - 1, area.getHeight(), 1.0f);
+
+            whiteKeyIndex++;
+        }
+    }
+
+    // Draw black keys on top
+    whiteKeyIndex = 0;
+    for (int i = 0; i < 128; i++)
+    {
+        if (!isBlackKey(i))
+        {
+            whiteKeyIndex++;
+        }
+        else
+        {
+            float x = area.getX() + whiteKeyIndex * whiteKeyWidth - blackKeyWidth / 2;
+
+            bool isActive = activeNotes[i].fadeAmount > 0.0f;
+            juce::Colour keyColour;
+
+            if (isActive)
+            {
+                float normalizedVel = activeNotes[i].velocity / 127.0f;
+                keyColour = getVelocityColour(normalizedVel).withAlpha(activeNotes[i].fadeAmount);
+            }
+            else
+            {
+                keyColour = juce::Colours::black;
+            }
+
+            g.setColour(keyColour);
+            g.fillRect(x, area.getY(), blackKeyWidth, blackKeyHeight);
+
+            g.setColour(juce::Colour(0xff1a1a1a));
+            g.drawRect(x, area.getY(), blackKeyWidth, blackKeyHeight, 1.0f);
+        }
+    }
+}
+
+juce::Colour PitchVelocityEditor::getVelocityColour(float normalizedVelocity)
+{
+    // Cool to hot color gradient
+    if (normalizedVelocity < 0.25f)
+    {
+        // Blue to Cyan
+        float t = normalizedVelocity / 0.25f;
+        return juce::Colour(0xff0000ff).interpolatedWith(juce::Colour(0xff00ffff), t);
+    }
+    else if (normalizedVelocity < 0.5f)
+    {
+        // Cyan to Green
+        float t = (normalizedVelocity - 0.25f) / 0.25f;
+        return juce::Colour(0xff00ffff).interpolatedWith(juce::Colour(0xff00ff00), t);
+    }
+    else if (normalizedVelocity < 0.75f)
+    {
+        // Green to Yellow
+        float t = (normalizedVelocity - 0.5f) / 0.25f;
+        return juce::Colour(0xff00ff00).interpolatedWith(juce::Colour(0xffffff00), t);
+    }
+    else
+    {
+        // Yellow to Red
+        float t = (normalizedVelocity - 0.75f) / 0.25f;
+        return juce::Colour(0xffffff00).interpolatedWith(juce::Colour(0xffff0000), t);
+    }
+}
+
+bool PitchVelocityEditor::isBlackKey(int noteNumber)
+{
+    int pitchClass = noteNumber % 12;
+    return (pitchClass == 1 || pitchClass == 3 || pitchClass == 6 ||
+            pitchClass == 8 || pitchClass == 10);
+}
+
+float PitchVelocityEditor::getKeyX(int noteNumber, float keyboardWidth)
+{
+    int whiteKeysBefore = 0;
+    for (int i = 0; i < noteNumber; i++)
+    {
+        if (!isBlackKey(i))
+            whiteKeysBefore++;
+    }
+
+    float whiteKeyWidth = keyboardWidth / 75.0f;
+
+    if (isBlackKey(noteNumber))
+    {
+        return whiteKeysBefore * whiteKeyWidth;
+    }
+    else
+    {
+        return whiteKeysBefore * whiteKeyWidth + whiteKeyWidth / 2;
+    }
 }
 
 void PitchVelocityEditor::resized()
@@ -127,15 +327,16 @@ void PitchVelocityEditor::resized()
 
     int knobSize = 80;
     int y = 50;
+    int spacing = (getWidth() - 3 * knobSize) / 4;
 
-    minVelocityLabel.setBounds(50, y, knobSize, 20);
-    minVelocitySlider.setBounds(50, y + 20, knobSize, knobSize);
+    minVelocityLabel.setBounds(spacing, y, knobSize, 20);
+    minVelocitySlider.setBounds(spacing, y + 20, knobSize, knobSize);
 
-    maxVelocityLabel.setBounds(160, y, knobSize, 20);
-    maxVelocitySlider.setBounds(160, y + 20, knobSize, knobSize);
+    maxVelocityLabel.setBounds(spacing * 2 + knobSize, y, knobSize, 20);
+    maxVelocitySlider.setBounds(spacing * 2 + knobSize, y + 20, knobSize, knobSize);
 
-    curveLabel.setBounds(270, y, knobSize, 20);
-    curveSlider.setBounds(270, y + 20, knobSize, knobSize);
+    curveLabel.setBounds(spacing * 3 + knobSize * 2, y, knobSize, 20);
+    curveSlider.setBounds(spacing * 3 + knobSize * 2, y + 20, knobSize, knobSize);
 
-    bypassButton.setBounds(160, 140, 80, 25);
+    bypassButton.setBounds(getWidth() / 2 - 40, 145, 80, 25);
 }

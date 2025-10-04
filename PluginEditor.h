@@ -1,4 +1,3 @@
-
 // PluginEditor.h
 #pragma once
 
@@ -16,6 +15,13 @@ public:
 
 private:
     void timerCallback() override;
+    void drawKeyboard(juce::Graphics &g, juce::Rectangle<float> area);
+    void drawVelocityBars(juce::Graphics &g, juce::Rectangle<float> area);
+    void drawCurveOverlay(juce::Graphics &g, juce::Rectangle<float> area);
+
+    juce::Colour getVelocityColour(float normalizedVelocity);
+    bool isBlackKey(int noteNumber);
+    float getKeyX(int noteNumber, float keyboardWidth);
 
     PitchVelocityProcessor &audioProcessor;
 
@@ -33,6 +39,15 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> maxVelAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> curveAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+
+    // Active notes tracking
+    struct NoteInfo
+    {
+        int velocity;
+        float fadeAmount;
+        NoteInfo() : velocity(0), fadeAmount(0.0f) {}
+    };
+    std::array<NoteInfo, 128> activeNotes;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PitchVelocityEditor)
 };
